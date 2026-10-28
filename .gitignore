@@ -1,0 +1,11 @@
+.env*
+!.env.example
+.venv/
+recommender/
+data/papers.json
+data/raw/*
+!data/raw/.gitkeep
+data/parsed/*
+!data/parsed/.gitkeep
+data/index/*
+!data/index/.gitkeep
