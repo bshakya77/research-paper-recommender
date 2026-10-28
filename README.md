@@ -108,25 +108,25 @@ src/
 ├── processing/        # Chunking and text normalization
 ├── embedding.py       # Sentence Transformers wrapper
 ├── vectorstore.py     # FAISS build / persist / load and semantic/hybrid search
-├── generation/        # Groq/Gemini provider fallback and grounded analysis (Stage 5)
-├── chat/              # LangChain paper-scoped follow-up chat (Stage 6)
-└── evaluation/        # Metrics and test cases (Stage 9)
+├── generation/        # Groq/Gemini provider fallback and grounded analysis 
+├── chat/              # LangChain paper-scoped follow-up chat 
+└── evaluation/        # Metrics and test cases 
 
-app/                   # Streamlit UI (Stage 7)
+app/                   # Streamlit UI 
 scripts/               # CLI ops: ingest, build_index, evaluate
 data/
-├── raw/               # Downloaded PDFs (gitignored)
-├── parsed/            # Extracted JSON (gitignored)
-└── index/             # FAISS index files (gitignored)
+├── raw/               # Downloaded PDFs 
+├── parsed/            # Extracted JSON 
+└── index/             # FAISS index files 
 ```
 
 ## Stage Roadmap
 
 | Stage | Focus | Status |
 |---|---|---|
-| 1 | Ingest HF Daily Papers metadata | ✅ Scaffold ready |
-| 2 | Download and parse PDFs | ✅ Scaffold ready |
-| 3 | Build FAISS retrieval index | ✅ Scaffold ready |
+| 1 | Ingest HF Daily Papers metadata | ✅ Implemented |
+| 2 | Download and parse PDFs | ✅ Implemented |
+| 3 | Build FAISS retrieval index | ✅ Implemented |
 | 4 | Semantic/hybrid search + date filters | ✅ Implemented |
 | 5 | Groq analysis with Gemini fallback | ✅ Implemented |
 | 6 | LangChain paper-scoped follow-up chat with bounded memory | ✅ Implemented |
