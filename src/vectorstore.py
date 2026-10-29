@@ -15,7 +15,6 @@ from functools import lru_cache
 import faiss
 
 from src.config import settings
-from src.embedding import embed
 from src.models import Chunk, RetrievedChunk
 
 
@@ -51,6 +50,8 @@ class FaissVectorStore:
         """Replace the index with embeddings for the supplied chunks."""
         if not chunks:
             raise ValueError("Cannot build a vector index with no chunks")
+        from src.embedding import embed
+
         vecs = embed([c.text for c in chunks])
         self.index = faiss.IndexFlatIP(vecs.shape[1])
         self.index.add(vecs)
@@ -69,6 +70,8 @@ class FaissVectorStore:
         new_chunks = [chunk for chunk in chunks if chunk.paper_id in new_paper_ids]
         if not new_chunks:
             return []
+
+        from src.embedding import embed
 
         vecs = embed([c.text for c in new_chunks])
         if self.index is None:
@@ -102,6 +105,8 @@ class FaissVectorStore:
         fetch = len(self.chunks) if paper_id else min(len(self.chunks), top_k * 20)
         semantic = []
         if search_mode in {"hybrid", "semantic"} and self.index is not None and fetch:
+            from src.embedding import embed
+
             q = embed([query])
             scores, ids = self.index.search(q, fetch)
             semantic = [

@@ -71,6 +71,10 @@ technical terms. Call `FaissVectorStore.search(..., search_mode="semantic")` or
 `search_mode="keyword"` to use one ranking method on its own; the default is
 `search_mode="hybrid"`.
 
+- `Semantic` ranks by embedding similarity.
+- `Hybrid` combines semantic and keyword (BM25) rankings.
+- `Keyword` uses BM25 alone.
+
 Stage 5 analysis uses Groq as the primary provider and uses Gemini when Groq's
 key is missing or Groq encounters rate limits, connection/timeouts, and
 transient service errors. At least one provider key must be set. Configure:

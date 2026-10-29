@@ -5,12 +5,12 @@ Headings are detected by font size larger than the body text (a simple heuristic
 refine later). Output saved to data/parsed/<paper_id>.json.
 """
 
+from __future__ import annotations
+
 import json
 import re
 from collections import Counter
 from pathlib import Path
-
-import pymupdf
 
 from src.config import settings
 from src.models import PageText, ParsedPaper, Section
@@ -29,6 +29,8 @@ def _body_font_size(doc: pymupdf.Document) -> float:
 
 
 def parse_pdf(pdf_path: Path, paper_id: str, title: str = "") -> ParsedPaper:
+    import pymupdf
+
     doc = pymupdf.open(pdf_path)
     body = _body_font_size(doc)
     pages: list[PageText] = []

@@ -1,6 +1,7 @@
 """Streamlit UI for paper discovery, analysis, and paper-scoped chat."""
 
 from datetime import date, timedelta
+import html
 import sys
 from pathlib import Path
 
@@ -8,13 +9,8 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.chat import chat_with_paper, clear_chat_session, start_chat_session
-from src.generation.analysis import analyze_paper
 from src.ingestion.deduplicator import load_catalog
-from src.ingestion.workflow import ingest_selected_papers, search_daily_papers
-from src.indexing import build_index
 from src.models import Paper, PaperAnalysis, PaperChatResponse
-from src.vectorstore import clear_vectorstore_cache, get_vectorstore
 
 
 st.set_page_config(
@@ -46,6 +42,75 @@ st.markdown(
         border-color: #205f3d !important;
         color: white !important;
     }
+    div[class*="st-key-discovery-open-"] button {
+        background-color: #f4c542 !important;
+        border-color: #d9ae25 !important;
+        color: #242424 !important;
+    }
+    div[class*="st-key-discovery-open-"] button:hover {
+        background-color: #e5b72f !important;
+        border-color: #c59d1e !important;
+        color: #242424 !important;
+    }
+    div[class*="st-key-paper-delete-cancel"] button {
+        background-color: #2e8b57 !important;
+        border-color: #267449 !important;
+        color: white !important;
+        width: 150px !important;
+        min-width: 150px !important;
+        max-width: 150px !important;
+        white-space: nowrap !important;
+    }
+    div[class*="st-key-paper-delete-cancel"] button:hover {
+        background-color: #267449 !important;
+        border-color: #205f3d !important;
+        color: white !important;
+    }
+    div[class*="st-key-paper-delete-confirm"] button {
+        width: 220px !important;
+        min-width: 220px !important;
+        max-width: 220px !important;
+        white-space: nowrap !important;
+    }
+    div[class*="st-key-paper-workspace-delete"] button {
+        background-color: #dc3545 !important;
+        border-color: #c82333 !important;
+        color: white !important;
+        width: 200px !important;
+        min-width: 200px !important;
+        max-width: 200px !important;
+        white-space: nowrap !important;
+    }
+    div[class*="st-key-paper-workspace-delete"] button:hover {
+        background-color: #c82333 !important;
+        border-color: #bd2130 !important;
+        color: white !important;
+    }
+    .timed-success-notice {
+        background: #eaf7ec;
+        border-radius: 0.5rem;
+        color: #267449;
+        margin: 0 0 1rem;
+        overflow: hidden;
+        padding: 0.85rem 1rem;
+        animation: timed-success-dismiss 10s linear forwards;
+    }
+    @keyframes timed-success-dismiss {
+        0%, 90% {
+            max-height: 100px;
+            opacity: 1;
+            padding-bottom: 0.85rem;
+            padding-top: 0.85rem;
+            margin-bottom: 1rem;
+        }
+        100% {
+            max-height: 0;
+            opacity: 0;
+            padding-bottom: 0;
+            padding-top: 0;
+            margin-bottom: 0;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,6 +123,8 @@ def _load_catalog():
 
 
 def _indexed_papers(catalog: dict[str, Paper]) -> dict[str, Paper]:
+    from src.vectorstore import get_vectorstore
+
     indexed_ids = {chunk.paper_id for chunk in get_vectorstore().chunks}
     return {paper_id: paper for paper_id, paper in catalog.items() if paper_id in indexed_ids}
 
@@ -67,9 +134,18 @@ def _open_paper(paper_id: str) -> None:
     st.session_state["active_page"] = "Paper workspace"
 
 
+def _show_timed_success(message: str) -> None:
+    st.markdown(
+        f'<div class="timed-success-notice">{html.escape(message)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _clear_active_chat() -> None:
     session_id = st.session_state.get("chat_session_id")
     if session_id:
+        from src.chat import clear_chat_session
+
         clear_chat_session(session_id)
     st.session_state["chat_session_id"] = None
     st.session_state["chat_paper_id"] = st.session_state.get("workspace_paper_id")
@@ -82,6 +158,35 @@ def _handle_paper_change() -> None:
     if previous_paper_id and current_paper_id != previous_paper_id:
         _clear_active_chat()
     st.session_state["chat_paper_id"] = current_paper_id
+
+
+@st.dialog("If you want to delete the paper?")
+def _confirm_delete_paper(paper_id: str, title: str) -> None:
+    st.write(
+        f"Delete **{title}** ({paper_id})? This removes its embeddings, chunks, "
+        "catalog entry, parsed text, and downloaded PDF if available."
+    )
+    confirm_col, cancel_col = st.columns([1, 1], gap="large")
+    with confirm_col:
+        with st.container(key="paper-delete-confirm"):
+            if st.button("Yes, delete paper", type="primary", key=f"confirm-delete-{paper_id}"):
+                try:
+                    from src.paper_management import delete_paper_data
+
+                    delete_paper_data(paper_id)
+                except Exception as exc:
+                    st.error(f"Could not delete the paper: {exc}")
+                else:
+                    st.session_state.setdefault("paper_analyses", {}).pop(paper_id, None)
+                    _clear_active_chat()
+                    st.session_state.pop("chat_notice", None)
+                    _load_catalog.clear()
+                    st.session_state["paper_deletion_notice"] = title
+                    st.rerun()
+    with cancel_col:
+        with st.container(key="paper-delete-cancel"):
+            if st.button("Cancel", key=f"cancel-delete-{paper_id}"):
+                st.rerun()
 
 
 def _show_evidence(refs) -> None:
@@ -113,14 +218,12 @@ def _render_discovery(papers: dict[str, Paper]) -> None:
 
         col_start, col_end = st.columns(2)
         with col_start:
-            use_start_date = st.checkbox("Filter from date")
             start_date = st.date_input(
-                "Start date", value=date(2020, 1, 1), disabled=not use_start_date
+                "Start date", value=date.today() - timedelta(days=30)
             )
         with col_end:
-            use_end_date = st.checkbox("Filter through date")
             end_date = st.date_input(
-                "End date", value=date.today(), disabled=not use_end_date
+                "End date", value=date.today(), disabled=True
             )
 
         submitted = st.form_submit_button("Search papers", type="primary")
@@ -129,18 +232,20 @@ def _render_discovery(papers: dict[str, Paper]) -> None:
         if not query.strip():
             st.session_state["search_results"] = []
             st.warning("Enter a search query.")
-        elif use_start_date and use_end_date and start_date > end_date:
+        elif start_date > end_date:
             st.session_state["search_results"] = []
             st.error("Start date must be on or before the end date.")
         else:
             with st.spinner("Searching the paper index..."):
                 try:
+                    from src.vectorstore import get_vectorstore
+
                     store = get_vectorstore()
                     hits = store.search(
                         query.strip(),
                         top_k=min(len(store.chunks), result_count * 4),
-                        start_date=start_date if use_start_date else None,
-                        end_date=end_date if use_end_date else None,
+                        start_date=start_date,
+                        end_date=end_date,
                         chunk_type="abstract",
                         search_mode=search_mode,
                     )
@@ -184,21 +289,28 @@ def _render_discovery(papers: dict[str, Paper]) -> None:
             st.write(paper.abstract or "No abstract available.")
             col_open, col_links = st.columns([1, 5])
             with col_open:
-                st.button(
-                    "Open paper",
-                    key=f"open-{paper.paper_id}",
-                    on_click=_open_paper,
-                    args=(paper.paper_id,),
-                )
+                with st.container(key=f"discovery-open-{paper.paper_id.replace('.', '-')}"):
+                    st.button(
+                        "Open paper",
+                        key=f"open-{paper.paper_id}",
+                        on_click=_open_paper,
+                        args=(paper.paper_id,),
+                    )
             with col_links:
                 if paper.pdf_url:
-                    st.link_button("PDF", str(paper.pdf_url), key=f"pdf-{paper.paper_id}")
+                    st.link_button(
+                        "Download PDF", str(paper.pdf_url), key=f"pdf-{paper.paper_id}"
+                    )
                 elif paper.source_url:
                     st.link_button("Paper page", str(paper.source_url), key=f"url-{paper.paper_id}")
 
 
 def _render_paper_workspace(papers: dict[str, Paper]) -> None:
     st.title("Paper workspace")
+    deleted_title = st.session_state.pop("paper_deletion_notice", None)
+    if deleted_title:
+        _show_timed_success(f"Deleted {deleted_title}")
+
     paper_ids = list(papers)
     if not paper_ids:
         st.info("No indexed papers are available. Ingest papers and build the index first.")
@@ -223,23 +335,32 @@ def _render_paper_workspace(papers: dict[str, Paper]) -> None:
     if paper.authors:
         st.write("**Authors:** " + ", ".join(paper.authors))
     st.write(paper.abstract or "No abstract available.")
-    link_cols = st.columns([1, 1, 6])
-    link_index = 0
+    actions = []
     if paper.source_url:
-        link_cols[link_index].link_button(
-            "Paper page", str(paper.source_url), type="secondary"
-        )
-        link_index += 1
+        actions.append(("page", str(paper.source_url)))
     if paper.pdf_url:
-        link_cols[link_index].link_button(
-            "Download PDF", str(paper.pdf_url), type="primary"
-        )
+        actions.append(("pdf", str(paper.pdf_url)))
+    actions.append(("delete", None))
+
+    action_cols = st.columns(len(actions), gap="large")
+    for index, (action, url) in enumerate(actions):
+        with action_cols[index]:
+            if action == "page":
+                st.link_button("Paper page", url, type="secondary")
+            elif action == "pdf":
+                st.link_button("Download PDF", url, type="primary")
+            else:
+                with st.container(key="paper-workspace-delete"):
+                    if st.button("Delete selected paper", key=f"delete-paper-{paper_id}"):
+                        _confirm_delete_paper(paper_id, paper.title)
 
     st.divider()
     st.subheader("AI paper analysis")
     if st.button("Generate analysis", type="primary", key=f"analyze-{paper_id}"):
         with st.spinner("Analyzing retrieved evidence..."):
             try:
+                from src.generation.analysis import analyze_paper
+
                 st.session_state.setdefault("paper_analyses", {})[paper_id] = analyze_paper(paper_id)
             except Exception as exc:
                 st.error(f"Analysis failed: {exc}")
@@ -253,6 +374,8 @@ def _render_paper_workspace(papers: dict[str, Paper]) -> None:
     st.divider()
     st.subheader("Ask follow-up questions")
     if st.button("Start a new chat", key=f"new-chat-{paper_id}"):
+        from src.chat import start_chat_session
+
         _clear_active_chat()
         st.session_state["chat_session_id"] = start_chat_session(paper_id)
         st.session_state["chat_paper_id"] = paper_id
@@ -270,6 +393,8 @@ def _render_paper_workspace(papers: dict[str, Paper]) -> None:
 
     question = st.chat_input("Ask about the selected paper")
     if question:
+        from src.chat import chat_with_paper
+
         st.session_state.pop("chat_notice", None)
         with st.spinner("Retrieving evidence and preparing an answer..."):
             try:
@@ -304,7 +429,7 @@ def _render_hf_ingestion() -> None:
     )
     st.caption(
         "Topic matching requires all entered terms to appear in the paper title or abstract. "
-        "Most-voted ranking follows Stage 1: upvoted papers first, then newest papers to fill the list."
+        "The paper ranking follows: most upvoted papers first, then newest papers to fill the list."
     )
 
     with st.form("hf_paper_search"):
@@ -335,6 +460,8 @@ def _render_hf_ingestion() -> None:
         else:
             with st.spinner("Fetching Daily Papers for the selected dates..."):
                 try:
+                    from src.ingestion.workflow import search_daily_papers
+
                     report = search_daily_papers(
                         start_date=start_date,
                         end_date=end_date,
@@ -351,9 +478,9 @@ def _render_hf_ingestion() -> None:
                     st.session_state.pop("hf_search_report", None)
                     st.error(f"Hugging Face search failed: {exc}")
 
-    previous_status = st.session_state.get("hf_ingestion_status")
+    previous_status = st.session_state.pop("hf_ingestion_status", None)
     if previous_status:
-        st.success(previous_status["message"])
+        _show_timed_success(previous_status["message"])
         if previous_status["failures"]:
             st.warning("Some PDFs could not be parsed. Their abstracts were still eligible for indexing.")
             for paper_id, error in previous_status["failures"].items():
@@ -374,6 +501,8 @@ def _render_hf_ingestion() -> None:
 
     indexed_ids = set()
     try:
+        from src.vectorstore import get_vectorstore
+
         indexed_ids = {chunk.paper_id for chunk in get_vectorstore().chunks}
     except (FileNotFoundError, RuntimeError):
         pass
@@ -424,6 +553,9 @@ def _render_hf_ingestion() -> None:
             "PDF downloads may take a few seconds per paper..."
         ):
             try:
+                from src.ingestion.workflow import ingest_selected_papers
+                from src.indexing import build_index
+
                 ingest_report = ingest_selected_papers(selected_ids)
                 index_report = build_index(selected_ids)
                 st.session_state["hf_ingestion_status"] = {
@@ -452,6 +584,8 @@ def main() -> None:
     )
 
     if st.sidebar.button("Reload paper index"):
+        from src.vectorstore import clear_vectorstore_cache
+
         clear_vectorstore_cache()
         _load_catalog.clear()
         st.session_state.pop("search_results", None)
