@@ -102,6 +102,10 @@ paper-scoped follow-up chat with source references. Use the sidebar to switch
 between workflows. `Reload paper index` refreshes an index rebuilt while the UI
 process is running.
 
+In **Paper workspace**, select an indexed paper and choose **Delete selected
+paper** beside its links. After confirmation, the app removes the paper's FAISS
+embeddings and chunks, catalog entry, parsed text, and downloaded PDF if present.
+
 ## Project Structure
 
 ```
